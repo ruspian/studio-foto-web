@@ -1,17 +1,20 @@
 // app/page.js
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react"; // Tambahkan useEffect dan useCallback
+import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
-import Image from "next/image"; // Import Image component
-import { IoTrashOutline } from "react-icons/io5";
+import Image from "next/image";
+import { IoTrashOutline } from "react-icons/io5"; // Icon untuk hapus
+import imageCompression from "browser-image-compression"; // Library kompresi
 
 export default function HomePage() {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(null);
-  const [availableFotos, setAvailableFotos] = useState([]); // State baru untuk daftar foto
-  const [loadingFotos, setLoadingFotos] = useState(true); // State untuk loading galeri
+  const [availableFotos, setAvailableFotos] = useState([]);
+  const [loadingFotos, setLoadingFotos] = useState(true);
+  const [showDeleteModal, setShowDeleteModal] = useState(false); // State untuk modal hapus
+  const [fotoToDelete, setFotoToDelete] = useState(null); // State untuk foto yang akan dihapus
   const fileInputRef = useRef(null);
 
   // Fungsi untuk mengambil daftar foto dari server
@@ -20,14 +23,14 @@ export default function HomePage() {
     setError(null);
     try {
       const res = await fetch("/api/foto", {
-        cache: "no-store", // Penting: Jangan gunakan cache untuk memastikan data terbaru
+        cache: "no-store",
       });
       if (!res.ok) {
         throw new Error(`HTTP error! status: ${res.status}`);
       }
       const data = await res.json();
       const formattedData = data.map((filename) => `/foto/${filename}`);
-      setAvailableFotos(formattedData.reverse()); // Tampilkan foto terbaru di atas
+      setAvailableFotos(formattedData.reverse());
     } catch (err) {
       console.error("Gagal memuat foto:", err);
       setError("Gagal memuat foto. Silakan coba lagi nanti.");
@@ -37,7 +40,7 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    fetchFoto(); // Panggil saat komponen dimuat pertama kali
+    fetchFoto();
   }, [fetchFoto]);
 
   const handleFileUpload = async (event) => {
@@ -52,14 +55,6 @@ export default function HomePage() {
 
     const formData = new FormData();
     for (const file of files) {
-      if (file.size > 5 * 1024 * 1024) {
-        setError(`Ukuran file '${file.name}' terlalu besar (maks 5MB).`);
-        setUploading(false);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-        return;
-      }
       if (!file.type.startsWith("image/")) {
         setError(`File '${file.name}' bukan format gambar yang didukung.`);
         setUploading(false);
@@ -68,7 +63,37 @@ export default function HomePage() {
         }
         return;
       }
-      formData.append("files", file);
+
+      try {
+        // Opsi kompresi gambar
+        const options = {
+          maxSizeMB: 0.8, // Maksimal 0.8 MB per foto
+          maxWidthOrHeight: 1920, // Maksimal dimensi lebar/tinggi 1920px
+          useWebWorker: true, // Gunakan Web Worker untuk kompresi di background
+        };
+        const compressedFile = await imageCompression(file, options);
+
+        // Validasi ukuran setelah kompresi (jika kompresi tidak efektif)
+        if (compressedFile.size > 5 * 1024 * 1024) {
+          setError(
+            `Ukuran file '${file.name}' setelah kompresi masih terlalu besar (maks 5MB).`
+          );
+          setUploading(false);
+          if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+          }
+          return;
+        }
+
+        formData.append("files", compressedFile, file.name);
+      } catch (compressionError) {
+        setError(`Gagal mengkompres gambar '${file.name}'.`);
+        setUploading(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        return;
+      }
     }
 
     try {
@@ -91,7 +116,6 @@ export default function HomePage() {
       }
       await fetchFoto(); // Panggil ulang untuk memuat daftar foto terbaru
     } catch (err) {
-      console.error("Gagal mengunggah foto:", err);
       setError(`Gagal mengunggah foto: ${err.message}`);
     } finally {
       setUploading(false);
@@ -102,12 +126,22 @@ export default function HomePage() {
     }
   };
 
-  // Fungsi untuk menghapus foto
-  const handleDeleteFoto = async (fotoUrl) => {
-    // Ekstrak nama file dari URL
-    const filename = fotoUrl.split("/").pop();
+  // Fungsi untuk menampilkan modal konfirmasi hapus
+  const confirmDelete = (fotoUrl) => {
+    setFotoToDelete(fotoUrl);
+    setShowDeleteModal(true);
+  };
 
+  // Fungsi untuk menghapus foto (setelah konfirmasi)
+  const handleDeleteFoto = async () => {
+    if (!fotoToDelete) return; // Pastikan ada foto yang akan dihapus
+
+    const filename = fotoToDelete.split("/").pop();
+
+    setShowDeleteModal(false); // Sembunyikan modal
+    setFotoToDelete(null); // Reset foto yang akan dihapus
     setLoadingFotos(true); // Tampilkan loading saat menghapus
+
     try {
       const res = await fetch("/api/foto", {
         method: "DELETE",
@@ -127,7 +161,6 @@ export default function HomePage() {
       setMessage("Foto berhasil dihapus!");
       await fetchFoto(); // Panggil ulang untuk memuat daftar foto terbaru
     } catch (err) {
-      console.error("Gagal menghapus foto:", err);
       setError(`Gagal menghapus foto: ${err.message}`);
     } finally {
       setLoadingFotos(false);
@@ -165,7 +198,9 @@ export default function HomePage() {
             disabled={uploading}
           />
           {uploading && (
-            <p className="mt-4 text-md font-medium text-blue-600">Sabar...</p>
+            <p className="mt-4 text-md font-medium text-blue-600">
+              Sabar coy...
+            </p>
           )}
           {message && (
             <p className="mt-4 text-md font-medium text-green-600">{message}</p>
@@ -173,6 +208,9 @@ export default function HomePage() {
           {error && (
             <p className="mt-4 text-md font-medium text-red-600">{error}</p>
           )}
+          <p className="mt-4 text-xs text-gray-500">
+            Klik Choose Files kalo lo mau unggah foto.
+          </p>
         </div>
 
         <Link
@@ -203,18 +241,18 @@ export default function HomePage() {
           {availableFotos.map((fotoUrl, index) => (
             <div
               key={index}
-              className="relative border-2 border-gray-200 rounded-md overflow-hidden shadow-sm"
+              className="relative border-2 border-gray-200 rounded-md overflow-hidden shadow-sm w-full h-40" // Menggunakan aspect ratio
             >
               <Image
                 src={fotoUrl}
                 alt={`Foto server ${index + 1}`}
-                width={150}
-                height={300}
-                className="object-cover w-full h-28" // Adjust height as needed
+                fill // Menggunakan fill untuk mengisi kontainer
+                sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 25vw" // Optimalisasi ukuran gambar
+                className="object-cover" // Pastikan gambar mengisi area tanpa distorsi
               />
               <button
-                onClick={() => handleDeleteFoto(fotoUrl)}
-                className="absolute top-1 cursor-pointer right-1 bg-red-600 text-white rounded-full p-1 text-xs leading-none"
+                onClick={() => confirmDelete(fotoUrl)} // Panggil confirmDelete
+                className="absolute top-1 cursor-pointer right-1 bg-red-600 text-white rounded-full p-1 text-xs leading-none opacity-80 hover:opacity-100 transition-opacity"
                 title="Hapus Foto Ini"
               >
                 <IoTrashOutline className="size-4" />
@@ -223,6 +261,35 @@ export default function HomePage() {
           ))}
         </div>
       </div>
+
+      {/* Custom Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full text-center">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">
+              Konfirmasi Hapus Foto
+            </h3>
+            <p className="text-gray-600 mb-6">
+              Anda yakin ingin menghapus foto ini? Tindakan ini tidak dapat
+              dibatalkan.
+            </p>
+            <div className="flex justify-center gap-4">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="px-5 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleDeleteFoto}
+                className="px-5 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
