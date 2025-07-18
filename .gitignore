@@ -17,7 +17,7 @@
 /.next/
 /out/
 
-# google keys json
+
 keys/
 
 # production
