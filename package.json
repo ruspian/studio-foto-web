@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@vercel/blob": "^1.1.1",
     "browser-image-compression": "^2.0.2",
     "clsx": "^2.1.1",
     "googleapis": "^153.0.0",

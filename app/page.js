@@ -4,8 +4,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { IoTrashOutline } from "react-icons/io5"; // Icon untuk hapus
-import imageCompression from "browser-image-compression"; // Library kompresi
+import { IoTrashOutline } from "react-icons/io5";
+import imageCompression from "browser-image-compression";
 
 export default function HomePage() {
   const [uploading, setUploading] = useState(false);
@@ -13,27 +13,26 @@ export default function HomePage() {
   const [error, setError] = useState(null);
   const [availableFotos, setAvailableFotos] = useState([]);
   const [loadingFotos, setLoadingFotos] = useState(true);
-  const [showDeleteModal, setShowDeleteModal] = useState(false); // State untuk modal hapus
-  const [fotoToDelete, setFotoToDelete] = useState(null); // State untuk foto yang akan dihapus
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [fotoToDelete, setFotoToDelete] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Fungsi untuk mengambil daftar foto dari server
+  // Fungsi untuk mengambil daftar foto dari Vercel Blob via API
   const fetchFoto = useCallback(async () => {
     setLoadingFotos(true);
     setError(null);
     try {
-      const res = await fetch("/api/foto", {
+      const res = await fetch("/api/upload", {
         cache: "no-store",
       });
       if (!res.ok) {
         throw new Error(`HTTP error! status: ${res.status}`);
       }
-      const data = await res.json();
-      const formattedData = data.map((filename) => `/foto/${filename}`);
-      setAvailableFotos(formattedData.reverse());
+      const data = await res.json(); // Data sekarang adalah array URL
+      setAvailableFotos(data.reverse()); // Tampilkan foto terbaru di atas
     } catch (err) {
-      console.error("Gagal memuat foto:", err);
-      setError("Gagal memuat foto. Silakan coba lagi nanti.");
+      console.error("Gagal memuat foto dari Vercel Blob:", err);
+      setError("Gagal memuat foto dari Vercel Blob. Silakan coba lagi nanti.");
     } finally {
       setLoadingFotos(false);
     }
@@ -53,77 +52,97 @@ export default function HomePage() {
     setMessage("");
     setError(null);
 
-    const formData = new FormData();
+    let uploadedCount = 0;
+    const tempErrors = [];
+
+    // Loop untuk setiap file yang dipilih
     for (const file of files) {
       if (!file.type.startsWith("image/")) {
-        setError(`File '${file.name}' bukan format gambar yang didukung.`);
-        setUploading(false);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-        return;
+        tempErrors.push(
+          `File '${file.name}' bukan format gambar yang didukung.`
+        );
+        continue; // Lanjutkan ke file berikutnya
       }
+
+      let fileToUpload = file;
+      try {
+        const options = {
+          maxSizeMB: 0.8,
+          maxWidthOrHeight: 1920,
+          useWebWorker: true,
+        };
+        console.log(
+          `Ukuran asli '${file.name}': ${(file.size / (1024 * 1024)).toFixed(
+            2
+          )} MB`
+        );
+        const compressedFile = await imageCompression(file, options);
+        console.log(
+          `Ukuran terkompresi '${file.name}': ${(
+            compressedFile.size /
+            (1024 * 1024)
+          ).toFixed(2)} MB`
+        );
+
+        // Batasan 4MB Vercel Blob
+        if (compressedFile.size > 4 * 1024 * 1024) {
+          tempErrors.push(
+            `Ukuran file '${file.name}' setelah kompresi masih terlalu besar (maks 4MB).`
+          );
+          continue;
+        }
+        fileToUpload = compressedFile;
+      } catch (compressionError) {
+        console.error("Error kompresi gambar:", compressionError);
+        tempErrors.push(`Gagal mengkompres gambar '${file.name}'.`);
+        continue;
+      }
+
+      // Upload satu per satu ke Vercel Blob
+      const formData = new FormData();
+      formData.append("file", fileToUpload);
 
       try {
-        // Opsi kompresi gambar
-        const options = {
-          maxSizeMB: 0.8, // Maksimal 0.8 MB per foto
-          maxWidthOrHeight: 1920, // Maksimal dimensi lebar/tinggi 1920px
-          useWebWorker: true, // Gunakan Web Worker untuk kompresi di background
-        };
-        const compressedFile = await imageCompression(file, options);
+        const res = await fetch("/api/upload", {
+          // Endpoint PUT Vercel Blob
+          method: "PUT", // Gunakan metode PUT
+          body: formData,
+        });
 
-        // Validasi ukuran setelah kompresi (jika kompresi tidak efektif)
-        if (compressedFile.size > 5 * 1024 * 1024) {
-          setError(
-            `Ukuran file '${file.name}' setelah kompresi masih terlalu besar (maks 5MB).`
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(
+            errorData.message || `HTTP error! status: ${res.status}`
           );
-          setUploading(false);
-          if (fileInputRef.current) {
-            fileInputRef.current.value = "";
-          }
-          return;
         }
 
-        formData.append("files", compressedFile, file.name);
-      } catch (compressionError) {
-        setError(`Gagal mengkompres gambar '${file.name}'.`);
-        setUploading(false);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-        return;
+        uploadedCount++; // Ini sekarang akan bekerja
+      } catch (err) {
+        console.error(`Gagal mengunggah '${file.name}':`, err);
+        tempErrors.push(`Gagal mengunggah '${file.name}': ${err.message}`);
       }
+    } // End of for loop
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""; // Reset input file
     }
 
-    try {
-      const res = await fetch("/api/upload-foto", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(
-          errorData.message || `HTTP error! status: ${res.status}`
-        );
-      }
-
-      const data = await res.json();
-      setMessage(`Berhasil mengunggah ${data.files.length} foto!`);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-      await fetchFoto(); // Panggil ulang untuk memuat daftar foto terbaru
-    } catch (err) {
-      setError(`Gagal mengunggah foto: ${err.message}`);
-    } finally {
-      setUploading(false);
-      setTimeout(() => {
-        setMessage("");
-        setError(null);
-      }, 5000);
+    if (uploadedCount > 0) {
+      setMessage(`Berhasil mengunggah ${uploadedCount} foto!`);
     }
+    if (tempErrors.length > 0) {
+      setError(tempErrors.join("\n")); // Tampilkan semua error yang terjadi
+    } else if (uploadedCount === 0 && tempErrors.length === 0) {
+      setError("Tidak ada foto yang berhasil diunggah.");
+    }
+
+    await fetchFoto(); // Panggil ulang untuk memuat daftar foto terbaru dari Blob
+
+    setUploading(false);
+    setTimeout(() => {
+      setMessage("");
+      setError(null);
+    }, 5000);
   };
 
   // Fungsi untuk menampilkan modal konfirmasi hapus
@@ -134,22 +153,21 @@ export default function HomePage() {
 
   // Fungsi untuk menghapus foto (setelah konfirmasi)
   const handleDeleteFoto = async () => {
-    if (!fotoToDelete) return; // Pastikan ada foto yang akan dihapus
+    if (!fotoToDelete) return;
 
-    const filename = fotoToDelete.split("/").pop();
-
-    setShowDeleteModal(false); // Sembunyikan modal
-    setFotoToDelete(null); // Reset foto yang akan dihapus
-    setLoadingFotos(true); // Tampilkan loading saat menghapus
+    // Mengirim imageUrl sebagai query parameter
+    setLoadingFotos(true);
+    setShowDeleteModal(false);
+    setFotoToDelete(null);
 
     try {
-      const res = await fetch("/api/foto", {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ filename: filename }),
-      });
+      // Endpoint DELETE Vercel Blob
+      const res = await fetch(
+        `/api/upload?imageUrl=${encodeURIComponent(fotoToDelete)}`,
+        {
+          method: "DELETE",
+        }
+      );
 
       if (!res.ok) {
         const errorData = await res.json();
@@ -159,8 +177,9 @@ export default function HomePage() {
       }
 
       setMessage("Foto berhasil dihapus!");
-      await fetchFoto(); // Panggil ulang untuk memuat daftar foto terbaru
+      await fetchFoto();
     } catch (err) {
+      console.error("Gagal menghapus foto:", err);
       setError(`Gagal menghapus foto: ${err.message}`);
     } finally {
       setLoadingFotos(false);
@@ -199,14 +218,16 @@ export default function HomePage() {
           />
           {uploading && (
             <p className="mt-4 text-md font-medium text-blue-600">
-              Sabar coy...
+              Sabar Coy..
             </p>
           )}
           {message && (
             <p className="mt-4 text-md font-medium text-green-600">{message}</p>
           )}
           {error && (
-            <p className="mt-4 text-md font-medium text-red-600">{error}</p>
+            <p className="mt-4 text-md font-medium text-red-600 whitespace-pre-wrap">
+              {error}
+            </p>
           )}
           <p className="mt-4 text-xs text-gray-500">
             Klik Choose Files kalo lo mau unggah foto.
@@ -224,7 +245,7 @@ export default function HomePage() {
       {/* Bagian Menampilkan Foto yang Diunggah */}
       <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-2xl mt-8">
         <h2 className="text-2xl font-semibold text-gray-700 mb-6 border-b pb-2">
-          Galeri Foto Server
+          Galeri Foto
         </h2>
 
         {loadingFotos && (
@@ -233,25 +254,25 @@ export default function HomePage() {
         {error && <p className="text-center text-red-500 py-4">{error}</p>}
         {!loadingFotos && !error && availableFotos.length === 0 && (
           <p className="text-center text-gray-500 py-4">
-            Gak ada foto. Unggah dulu!
+            Gak ada foto di Vercel Blob. Unggah dulu!
           </p>
         )}
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-4">
           {availableFotos.map((fotoUrl, index) => (
             <div
-              key={index}
-              className="relative border-2 border-gray-200 rounded-md overflow-hidden shadow-sm w-full h-40" // Menggunakan aspect ratio
+              key={fotoUrl} // Gunakan fotoUrl sebagai key karena unik
+              className="relative border-2 border-gray-200 rounded-md overflow-hidden shadow-sm w-full h-36"
             >
               <Image
                 src={fotoUrl}
                 alt={`Foto server ${index + 1}`}
-                fill // Menggunakan fill untuk mengisi kontainer
-                sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 25vw" // Optimalisasi ukuran gambar
-                className="object-cover" // Pastikan gambar mengisi area tanpa distorsi
+                fill
+                sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 25vw"
+                className="object-cover"
               />
               <button
-                onClick={() => confirmDelete(fotoUrl)} // Panggil confirmDelete
+                onClick={() => confirmDelete(fotoUrl)}
                 className="absolute top-1 cursor-pointer right-1 bg-red-600 text-white rounded-full p-1 text-xs leading-none opacity-80 hover:opacity-100 transition-opacity"
                 title="Hapus Foto Ini"
               >

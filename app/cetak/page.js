@@ -36,16 +36,17 @@ export default function CetakPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/foto");
+      const res = await fetch("/api/upload", {
+        cache: "no-store",
+      });
       if (!res.ok) {
         throw new Error(`HTTP error! status: ${res.status}`);
       }
-      const data = await res.json();
-      const formattedData = data.map((filename) => `/foto/${filename}`);
-      setAvailableFotos(formattedData.reverse());
+      const data = await res.json(); // Data sekarang adalah array URL
+      setAvailableFotos(data.reverse()); // Tampilkan foto terbaru di atas
     } catch (err) {
-      console.error("Gagal memuat foto:", err);
-      setError("Gagal memuat foto. Silakan coba lagi nanti.");
+      console.error("Gagal memuat foto dari Vercel Blob:", err);
+      setError("Gagal memuat foto dari Vercel Blob. Silakan coba lagi nanti.");
     } finally {
       setLoading(false);
     }
