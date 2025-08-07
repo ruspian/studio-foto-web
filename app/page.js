@@ -6,6 +6,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { IoTrashOutline } from "react-icons/io5";
 import imageCompression from "browser-image-compression";
+import { supabase } from "../lib/supabase";
+
+const SUPABASE_BUCKET_NAME = "ruspian"; // NAMA BUCKET DI SUPABASE
 
 export default function HomePage() {
   const [uploading, setUploading] = useState(false);
@@ -15,24 +18,41 @@ export default function HomePage() {
   const [loadingFotos, setLoadingFotos] = useState(true);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [fotoToDelete, setFotoToDelete] = useState(null);
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Fungsi untuk mengambil daftar foto dari Vercel Blob via API
+  // Fungsi untuk mengambil daftar foto dari Supabase Storage
   const fetchFoto = useCallback(async () => {
     setLoadingFotos(true);
     setError(null);
+
     try {
-      const res = await fetch("/api/upload", {
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
+      // Dapatkan daftar foto dari Supabase Storage
+      const { data, error: fetchError } = await supabase.storage
+        .from(SUPABASE_BUCKET_NAME)
+        .list("", { sortBy: { column: "created_at", order: "desc" } });
+
+      // jika ada error tampilkan error
+      if (fetchError) {
+        throw fetchError;
       }
-      const data = await res.json(); // Data sekarang adalah array URL
-      setAvailableFotos(data.reverse()); // Tampilkan foto terbaru di atas
+
+      // ambil nama file dan buat URL publik
+      const fotosWithUrls = data.map((file) => {
+        const { data: publicUrlData } = supabase.storage
+          .from(SUPABASE_BUCKET_NAME)
+          .getPublicUrl(file.name);
+
+        return publicUrlData.publicUrl;
+      });
+
+      setAvailableFotos(fotosWithUrls);
     } catch (err) {
-      console.error("Gagal memuat foto dari Vercel Blob:", err);
-      setError("Gagal memuat foto dari Vercel Blob. Silakan coba lagi nanti.");
+      console.error("Gagal memuat foto dari Supabase Storage:", err);
+      setError(
+        "Gagal memuat foto dari Supabase Storage. Silakan coba lagi nanti."
+      );
     } finally {
       setLoadingFotos(false);
     }
@@ -42,7 +62,9 @@ export default function HomePage() {
     fetchFoto();
   }, [fetchFoto]);
 
+  // Fungsi untuk mengupload foto
   const handleFileUpload = async (event) => {
+    // ambil file dari input
     const files = event.target.files;
     if (!files || files.length === 0) {
       return;
@@ -52,137 +74,199 @@ export default function HomePage() {
     setMessage("");
     setError(null);
 
+    // inisialisasi variabel jumlah file yang berhasil diupload
     let uploadedCount = 0;
     const tempErrors = [];
 
-    // Loop untuk setiap file yang dipilih
+    // loop setiap file
     for (const file of files) {
+      // cek apakah file adalah gambar
       if (!file.type.startsWith("image/")) {
-        tempErrors.push(
-          `File '${file.name}' bukan format gambar yang didukung.`
-        );
-        continue; // Lanjutkan ke file berikutnya
+        tempErrors.push(`Format gambar '${file.name}' tidak didukung.`);
+        continue;
       }
 
+      // inisialisasi variable untuk file yang akan diupload
       let fileToUpload = file;
       try {
+        // opsi kompresi gambar
         const options = {
           maxSizeMB: 0.8,
           maxWidthOrHeight: 1920,
           useWebWorker: true,
         };
-        console.log(
-          `Ukuran asli '${file.name}': ${(file.size / (1024 * 1024)).toFixed(
-            2
-          )} MB`
-        );
-        const compressedFile = await imageCompression(file, options);
-        console.log(
-          `Ukuran terkompresi '${file.name}': ${(
-            compressedFile.size /
-            (1024 * 1024)
-          ).toFixed(2)} MB`
-        );
 
-        // Batasan 4MB Vercel Blob
-        if (compressedFile.size > 4 * 1024 * 1024) {
+        // kompresi gambar
+        const compressedFile = await imageCompression(file, options);
+
+        // jika ukuran file setelah kompresi lebih besar dari 1MB, tambahkan pesan kesalahan
+        if (compressedFile.size > 1 * 1024 * 1024) {
           tempErrors.push(
-            `Ukuran file '${file.name}' setelah kompresi masih terlalu besar (maks 4MB).`
+            `Ukuran file '${file.name}' setelah kompresi masih terlalu besar (maks 1MB).`
           );
           continue;
         }
+
         fileToUpload = compressedFile;
       } catch (compressionError) {
-        console.error("Error kompresi gambar:", compressionError);
         tempErrors.push(`Gagal mengkompres gambar '${file.name}'.`);
         continue;
       }
 
-      // Upload satu per satu ke Vercel Blob
-      const formData = new FormData();
-      formData.append("file", fileToUpload);
-
       try {
-        const res = await fetch("/api/upload", {
-          // Endpoint PUT Vercel Blob
-          method: "PUT", // Gunakan metode PUT
-          body: formData,
-        });
+        // buat nama file unik
+        const fileExt = fileToUpload.name.split(".").pop();
+        const fileName = `${Date.now()}-${Math.random()
+          .toString(36)
+          .substring(2, 15)}.${fileExt}`;
+        const filePath = fileName;
 
-        if (!res.ok) {
-          const errorData = await res.json();
-          throw new Error(
-            errorData.message || `HTTP error! status: ${res.status}`
-          );
+        // unggah file ke Supabase
+        const { data, error: uploadError } = await supabase.storage
+          .from(SUPABASE_BUCKET_NAME)
+          .upload(filePath, fileToUpload, {
+            cacheControl: "3600",
+            upsert: false,
+          });
+
+        // jika ada error tampilkan error
+        if (uploadError) {
+          throw uploadError;
         }
 
-        uploadedCount++; // Ini sekarang akan bekerja
+        // tambahkan URL publik ke daftar foto
+        uploadedCount++;
       } catch (err) {
-        console.error(`Gagal mengunggah '${file.name}':`, err);
         tempErrors.push(`Gagal mengunggah '${file.name}': ${err.message}`);
       }
-    } // End of for loop
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""; // Reset input file
     }
 
+    // reset input file
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
+    // jika berhasil
     if (uploadedCount > 0) {
       setMessage(`Berhasil mengunggah ${uploadedCount} foto!`);
     }
+
+    // jika ada error
     if (tempErrors.length > 0) {
-      setError(tempErrors.join("\n")); // Tampilkan semua error yang terjadi
+      setError(tempErrors.join("\n"));
     } else if (uploadedCount === 0 && tempErrors.length === 0) {
       setError("Tidak ada foto yang berhasil diunggah.");
     }
 
-    await fetchFoto(); // Panggil ulang untuk memuat daftar foto terbaru dari Blob
-
+    // panggil ulang untuk memuat daftar foto terbaru
+    await fetchFoto();
     setUploading(false);
+
+    // hapus pesan setelah 5 detik
     setTimeout(() => {
       setMessage("");
       setError(null);
     }, 5000);
   };
 
-  // Fungsi untuk menampilkan modal konfirmasi hapus
+  // Fungsi untuk menampilkan modal konfirmasi hapus satu per satu
   const confirmDelete = (fotoUrl) => {
     setFotoToDelete(fotoUrl);
     setShowDeleteModal(true);
   };
 
-  // Fungsi untuk menghapus foto (setelah konfirmasi)
+  // Fungsi untuk menghapus foto dari Supabase Storage (satu per satu)
   const handleDeleteFoto = async () => {
+    // pastikan foto yang akan dihapus ada
     if (!fotoToDelete) return;
 
-    // Mengirim imageUrl sebagai query parameter
     setLoadingFotos(true);
     setShowDeleteModal(false);
-    setFotoToDelete(null);
 
     try {
-      // Endpoint DELETE Vercel Blob
-      const res = await fetch(
-        `/api/upload?imageUrl=${encodeURIComponent(fotoToDelete)}`,
-        {
-          method: "DELETE",
-        }
-      );
+      // ambil nama file dari URL
+      const urlParts = fotoToDelete.split("/");
+      const fileName = urlParts[urlParts.length - 1];
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(
-          errorData.message || `HTTP error! status: ${res.status}`
-        );
+      // hapus file dari Supabase
+      const { data, error: deleteError } = await supabase.storage
+        .from(SUPABASE_BUCKET_NAME)
+        .remove([fileName]);
+
+      // jika ada error
+      if (deleteError) {
+        throw deleteError;
       }
 
       setMessage("Foto berhasil dihapus!");
+      setFotoToDelete(null);
+
+      // panggil fungsi fetchFoto untuk memuat daftar foto terbaru
       await fetchFoto();
     } catch (err) {
-      console.error("Gagal menghapus foto:", err);
       setError(`Gagal menghapus foto: ${err.message}`);
     } finally {
       setLoadingFotos(false);
+      setTimeout(() => {
+        setMessage("");
+        setError(null);
+      }, 5000);
+    }
+  };
+
+  // Menampilkan modal konfirmasi hapus semua
+  const confirmDeleteAll = () => {
+    setShowDeleteAllModal(true);
+  };
+
+  // Menghapus SEMUA foto dari Supabase Storage
+  const handleDeleteAllFotos = async () => {
+    // pastikan ada foto yang akan dihapus
+    if (availableFotos.length === 0) {
+      setMessage("Tidak ada foto untuk dihapus.");
+      setShowDeleteAllModal(false);
+      return;
+    }
+
+    setDeletingAll(true);
+    setShowDeleteAllModal(false);
+    setMessage("");
+    setError(null);
+
+    try {
+      // Dapatkan daftar nama file dari Supabase Storage
+      // Supabase .list() hanya mengembalikan nama file, bukan URL penuh
+      const { data: files, error: listError } = await supabase.storage
+        .from(SUPABASE_BUCKET_NAME)
+        .list("", { limit: 1000 }); // Batasi upload untuk menghindari terlalu banyak data jika ada ribuan file
+
+      if (listError) {
+        throw listError;
+      }
+
+      if (files.length === 0) {
+        setMessage("Tidak ada foto di bucket untuk dihapus.");
+        return;
+      }
+
+      // Buat array hanya berisi nama file
+      const fileNamesToDelete = files.map((file) => file.name);
+
+      // Lakukan penghapusan semua file
+      const { data, error: removeError } = await supabase.storage
+        .from(SUPABASE_BUCKET_NAME)
+        .remove(fileNamesToDelete);
+
+      if (removeError) {
+        throw removeError;
+      }
+
+      setMessage(`Berhasil menghapus ${fileNamesToDelete.length} foto!`);
+      await fetchFoto(); // Refresh daftar foto setelah penghapusan
+    } catch (err) {
+      setError(`Gagal menghapus semua foto: ${err.message}`);
+    } finally {
+      setDeletingAll(false);
       setTimeout(() => {
         setMessage("");
         setError(null);
@@ -249,24 +333,24 @@ export default function HomePage() {
         </h2>
 
         {loadingFotos && (
-          <p className="text-center text-gray-500 py-4">Memuat foto...</p>
+          <p className="text-center text-gray-500 py-4">Sabar coy..</p>
         )}
         {error && <p className="text-center text-red-500 py-4">{error}</p>}
         {!loadingFotos && !error && availableFotos.length === 0 && (
           <p className="text-center text-gray-500 py-4">
-            Gak ada foto di Vercel Blob. Unggah dulu!
+            Gak ada foto. Unggah dulu coy!
           </p>
         )}
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-4">
-          {availableFotos.map((fotoUrl, index) => (
+          {availableFotos.map((fotoUrl) => (
             <div
-              key={fotoUrl} // Gunakan fotoUrl sebagai key karena unik
+              key={fotoUrl}
               className="relative border-2 border-gray-200 rounded-md overflow-hidden shadow-sm w-full h-36"
             >
               <Image
                 src={fotoUrl}
-                alt={`Foto server ${index + 1}`}
+                alt={`Foto`}
                 fill
                 sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 25vw"
                 className="object-cover"
@@ -281,9 +365,29 @@ export default function HomePage() {
             </div>
           ))}
         </div>
+
+        {/* Tombol Hapus Semua Foto - BARU */}
+        {availableFotos.length > 0 && !loadingFotos && (
+          <div className="mt-8 text-center">
+            <button
+              onClick={confirmDeleteAll}
+              disabled={deletingAll}
+              className={`
+                px-6 py-3 rounded-lg text-white font-semibold transition-colors duration-300
+                ${
+                  deletingAll
+                    ? "bg-red-400 opacity-60 cursor-not-allowed"
+                    : "bg-red-600 hover:bg-red-700"
+                }
+              `}
+            >
+              {deletingAll ? "Menghapus Semua..." : "Hapus Semua Foto"}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Custom Delete Confirmation Modal */}
+      {/* Custom Delete Confirmation Modal (untuk hapus satu per satu) */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full text-center">
@@ -291,8 +395,7 @@ export default function HomePage() {
               Konfirmasi Hapus Foto
             </h3>
             <p className="text-gray-600 mb-6">
-              Anda yakin ingin menghapus foto ini? Tindakan ini tidak dapat
-              dibatalkan.
+              Lo yakin ingin menghapus foto ini?
             </p>
             <div className="flex justify-center gap-4">
               <button
@@ -305,7 +408,36 @@ export default function HomePage() {
                 onClick={handleDeleteFoto}
                 className="px-5 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
               >
-                Hapus
+                Gass
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Delete All Confirmation Modal - BARU */}
+      {showDeleteAllModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full text-center">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">
+              Konfirmasi Hapus Semua Foto
+            </h3>
+            <p className="text-red-600 font-bold mb-4">
+              {availableFotos.length} foto bakal lo hapus!
+            </p>
+            <p className="text-gray-600 mb-6">Hapus apa kagak nih?</p>
+            <div className="flex justify-center gap-4">
+              <button
+                onClick={() => setShowDeleteAllModal(false)}
+                className="px-5 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleDeleteAllFotos}
+                className="px-5 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+              >
+                Gass lah
               </button>
             </div>
           </div>

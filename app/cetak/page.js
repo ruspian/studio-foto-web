@@ -2,6 +2,9 @@
 
 import Image from "next/image";
 import { useEffect, useState, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
+
+const SUPABASE_BUCKET_NAME = "ruspian"; // NAMA BUCKET DI SUPABASE
 
 export default function CetakPage() {
   // Bingkai tidak lagi menjadi state pilihan, tapi akan ditentukan oleh posisi
@@ -32,21 +35,37 @@ export default function CetakPage() {
     [maxFoto]
   );
 
+  // Fungsi untuk mengambil daftar foto dari Supabase Storage
   const fetchFoto = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     try {
-      const res = await fetch("/api/upload", {
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
+      // Dapatkan daftar foto dari Supabase Storage
+      const { data, error: fetchError } = await supabase.storage
+        .from(SUPABASE_BUCKET_NAME)
+        .list("", { sortBy: { column: "created_at", order: "desc" } });
+
+      // jika ada error tampilkan error
+      if (fetchError) {
+        throw fetchError;
       }
-      const data = await res.json(); // Data sekarang adalah array URL
-      setAvailableFotos(data.reverse()); // Tampilkan foto terbaru di atas
+
+      // ambil nama file dan buat URL publik
+      const fotosWithUrls = data.map((file) => {
+        const { data: publicUrlData } = supabase.storage
+          .from(SUPABASE_BUCKET_NAME)
+          .getPublicUrl(file.name);
+
+        return publicUrlData.publicUrl;
+      });
+
+      setAvailableFotos(fotosWithUrls);
     } catch (err) {
-      console.error("Gagal memuat foto dari Vercel Blob:", err);
-      setError("Gagal memuat foto dari Vercel Blob. Silakan coba lagi nanti.");
+      console.error("Gagal memuat foto dari Supabase Storage:", err);
+      setError(
+        "Gagal memuat foto dari Supabase Storage. Silakan coba lagi nanti."
+      );
     } finally {
       setLoading(false);
     }
