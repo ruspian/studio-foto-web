@@ -49,7 +49,6 @@ export default function HomePage() {
 
       setAvailableFotos(fotosWithUrls);
     } catch (err) {
-      console.error("Gagal memuat foto dari Supabase Storage:", err);
       setError(
         "Gagal memuat foto dari Supabase Storage. Silakan coba lagi nanti."
       );
@@ -101,9 +100,7 @@ export default function HomePage() {
 
         // jika ukuran file setelah kompresi lebih besar dari 1MB, tambahkan pesan kesalahan
         if (compressedFile.size > 1 * 1024 * 1024) {
-          tempErrors.push(
-            `Ukuran file '${file.name}' setelah kompresi masih terlalu besar (maks 1MB).`
-          );
+          tempErrors.push(`Ukuran file '${file.name}' maximal 1MB coy.`);
           continue;
         }
 
@@ -148,14 +145,14 @@ export default function HomePage() {
 
     // jika berhasil
     if (uploadedCount > 0) {
-      setMessage(`Berhasil mengunggah ${uploadedCount} foto!`);
+      setMessage(`Alhamdulillah berhasil coy!`);
     }
 
     // jika ada error
     if (tempErrors.length > 0) {
       setError(tempErrors.join("\n"));
     } else if (uploadedCount === 0 && tempErrors.length === 0) {
-      setError("Tidak ada foto yang berhasil diunggah.");
+      setError("Inna lillahi, terjadi kesalahan. coba lagi.");
     }
 
     // panggil ulang untuk memuat daftar foto terbaru
@@ -261,10 +258,10 @@ export default function HomePage() {
         throw removeError;
       }
 
-      setMessage(`Berhasil menghapus ${fileNamesToDelete.length} foto!`);
+      setMessage(`MasyaAllah Tabarakallah, foto berhasil dihapus.`);
       await fetchFoto(); // Refresh daftar foto setelah penghapusan
     } catch (err) {
-      setError(`Gagal menghapus semua foto: ${err.message}`);
+      setError(`Astagfirullah, terjadi kesalahan: ${err.message}`);
     } finally {
       setDeletingAll(false);
       setTimeout(() => {

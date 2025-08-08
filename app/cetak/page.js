@@ -1,71 +1,260 @@
+// app/cetak/page.js
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { v4 as uuidv4 } from "uuid";
 
-const SUPABASE_BUCKET_NAME = "ruspian"; // NAMA BUCKET DI SUPABASE
+import CetakHeader from "@/component/CetakHeader";
+import PrintArea from "@/component/PrintArea";
+import RightPanel from "@/component/RightPanel";
+import CropperModal from "@/component/CropImageComponent";
+
+const SUPABASE_BUCKET_NAME = "ruspian";
+
+const PAGE_INTERNAL_PADDING_CM = 0.2;
+const A4_WIDTH_CM = 21;
+const A4_HEIGHT_CM = 29.7;
+
+const TEMPLATE_DEFINITIONS = {
+  // --- TEMPLATE 4x4 (TIDAK DIUBAH) ---
+  "4x4_full_layout": {
+    name: "Hitam dan Abu-Abu",
+    blockType: "composite",
+    maxSlots: 8,
+    description:
+      "Layout 4x4 khas dengan 4 bingkai hitam dan 4 bingkai abu-abu.",
+    blockWidthCm: 20.5,
+    blockHeightCm: 16.5,
+    FOTO_LEBAR_CM: 5,
+    FOTO_TINGGI_CM: 8,
+    BORDER_BINGKAI_CM: 0,
+    PADDING_FOTO_CM: 0.4,
+    LOGO_TINGGI_CM: 1.5,
+    DASH_BORDER_THICKNESS_CM: 0.01,
+    DASH_BORDER_COLOR: "#ffffff",
+    GAP_WITHIN_GROUP_HORIZONTAL_CM: 0,
+    GAP_WITHIN_GROUP_VERTICAL_CM: 0,
+    GAP_BETWEEN_TEMPLATES_CM: 0.5,
+    getRelativeFotoPosition: (slotIndex) => {
+      let x, y;
+      const {
+        FOTO_LEBAR_CM,
+        FOTO_TINGGI_CM,
+        BORDER_BINGKAI_CM,
+        PADDING_FOTO_CM,
+        LOGO_TINGGI_CM,
+        GAP_WITHIN_GROUP_HORIZONTAL_CM,
+        GAP_WITHIN_GROUP_VERTICAL_CM,
+        GAP_BETWEEN_TEMPLATES_CM,
+      } = TEMPLATE_DEFINITIONS["4x4_full_layout"];
+
+      let fotoGroupIndex;
+      const GAMBAR_LEBAR_CM =
+        FOTO_LEBAR_CM - 2 * BORDER_BINGKAI_CM - 2 * PADDING_FOTO_CM;
+      const GAMBAR_TINGGI_CM =
+        FOTO_TINGGI_CM -
+        2 * BORDER_BINGKAI_CM -
+        2 * PADDING_FOTO_CM -
+        LOGO_TINGGI_CM;
+
+      if (slotIndex < 4) {
+        fotoGroupIndex = slotIndex;
+        const col = fotoGroupIndex % 2;
+        const row = Math.floor(fotoGroupIndex / 2);
+
+        x = col * (FOTO_LEBAR_CM + GAP_WITHIN_GROUP_HORIZONTAL_CM);
+        y = row * (FOTO_TINGGI_CM + GAP_WITHIN_GROUP_VERTICAL_CM);
+        return {
+          top: `${y}cm`,
+          left: `${x}cm`,
+          bingkaiColorClass: "hitam",
+          logoSrc: "/logoPutih.png",
+          logoHeightCm: TEMPLATE_DEFINITIONS["4x4_full_layout"].LOGO_TINGGI_CM,
+          aspectRatio: GAMBAR_LEBAR_CM / GAMBAR_TINGGI_CM,
+        };
+      } else {
+        fotoGroupIndex = slotIndex - 4;
+        const col = fotoGroupIndex % 2;
+        const row = Math.floor(fotoGroupIndex / 2);
+
+        const offsetXTemplates =
+          2 * FOTO_LEBAR_CM +
+          1 * GAP_WITHIN_GROUP_HORIZONTAL_CM +
+          GAP_BETWEEN_TEMPLATES_CM;
+
+        x =
+          offsetXTemplates +
+          col * (FOTO_LEBAR_CM + GAP_WITHIN_GROUP_HORIZONTAL_CM);
+        y = row * (FOTO_TINGGI_CM + GAP_WITHIN_GROUP_VERTICAL_CM);
+        return {
+          top: `${y}cm`,
+          left: `${x}cm`,
+          bingkaiColorClass: "abu",
+          logoSrc: "/logoHitam.png",
+          logoHeightCm: TEMPLATE_DEFINITIONS["4x4_full_layout"].LOGO_TINGGI_CM,
+          aspectRatio: GAMBAR_LEBAR_CM / GAMBAR_TINGGI_CM,
+        };
+      }
+    },
+  },
+
+  // --- TEMPLATE 3x2 Hitam (DIUBAH) ---
+  "3x2_logo_hitam": {
+    name: "3x2 Logo Hitam",
+    blockType: "composite",
+    maxSlots: 3,
+    description: "Layout 3 foto vertikal dengan logo di bawah bingkai hitam.",
+    blockWidthCm: 6.5,
+    blockHeightCm: 18.5,
+    FOTO_LEBAR_CM: 5.5,
+    FOTO_TINGGI_CM: (18.5 - 0.5 - 2.1 - 0.5) / 3,
+    BORDER_BINGKAI_CM: 0.5,
+    PADDING_FOTO_CM: 0.4,
+    LOGO_TINGGI_CM: 2.1,
+    logoSrc: "/logoPutih.png",
+    GAP_WITHIN_GROUP_HORIZONTAL_CM: 0,
+    GAP_WITHIN_GROUP_VERTICAL_CM: 0,
+    GAP_BETWEEN_TEMPLATES_CM: 0,
+    getRelativeFotoPosition: (slotIndex) => {
+      const { FOTO_LEBAR_CM, FOTO_TINGGI_CM, BORDER_BINGKAI_CM } =
+        TEMPLATE_DEFINITIONS["3x2_logo_hitam"];
+
+      const GAMBAR_LEBAR_CM = FOTO_LEBAR_CM - 2 * BORDER_BINGKAI_CM;
+      const GAMBAR_TINGGI_CM = FOTO_TINGGI_CM - 2 * BORDER_BINGKAI_CM;
+
+      const x = 0;
+      const y = slotIndex * FOTO_TINGGI_CM;
+
+      return {
+        top: `${y}cm`,
+        left: `${x}cm`,
+        logoSrc: "/logoPutih.png",
+        logoHeightCm: TEMPLATE_DEFINITIONS["3x2_logo_hitam"].LOGO_TINGGI_CM,
+        bingkaiColorClass: "hitam",
+        aspectRatio: GAMBAR_LEBAR_CM / GAMBAR_TINGGI_CM,
+      };
+    },
+  },
+
+  // --- TEMPLATE 3x2 Abu-Abu (DIUBAH) ---
+  "3x2_logo_abu": {
+    name: "3x2 Logo Abu-Abu",
+    blockType: "composite",
+    maxSlots: 3,
+    description: "Layout 3 foto vertikal dengan logo di bawah bingkai abu-abu.",
+    blockWidthCm: 6.5,
+    blockHeightCm: 18.5,
+    FOTO_LEBAR_CM: 5.5,
+    FOTO_TINGGI_CM: (18.5 - 0.5 - 2.1 - 0.5) / 3,
+    BORDER_BINGKAI_CM: 0.5,
+    PADDING_FOTO_CM: 0.4,
+    LOGO_TINGGI_CM: 2.1,
+    logoSrc: "/logoHitam.png",
+    GAP_WITHIN_GROUP_HORIZONTAL_CM: 0,
+    GAP_WITHIN_GROUP_VERTICAL_CM: 0,
+    GAP_BETWEEN_TEMPLATES_CM: 0,
+    getRelativeFotoPosition: (slotIndex) => {
+      const { FOTO_LEBAR_CM, FOTO_TINGGI_CM, BORDER_BINGKAI_CM } =
+        TEMPLATE_DEFINITIONS["3x2_logo_abu"];
+
+      const GAMBAR_LEBAR_CM = FOTO_LEBAR_CM - 2 * BORDER_BINGKAI_CM;
+      const GAMBAR_TINGGI_CM = FOTO_TINGGI_CM - 2 * BORDER_BINGKAI_CM;
+
+      const x = 0;
+      const y = slotIndex * FOTO_TINGGI_CM;
+
+      return {
+        top: `${y}cm`,
+        left: `${x}cm`,
+        logoSrc: "/logoHitam.png",
+        logoHeightCm: TEMPLATE_DEFINITIONS["3x2_logo_abu"].LOGO_TINGGI_CM,
+        bingkaiColorClass: "abu",
+        aspectRatio: GAMBAR_LEBAR_CM / GAMBAR_TINGGI_CM,
+      };
+    },
+  },
+  // --- TEMPLATE PAS FOTO ---
+  pas_foto_3x2: {
+    name: "Pas Foto 3x2",
+    blockType: "single_item",
+    maxSlots: 1,
+    description: "Pas foto ukuran 3x2 cm.",
+    fotoWidthCm: 2.2,
+    fotoHeightCm: 3.2,
+    borderThicknessCm: 0,
+    paddingFotoCm: 0,
+    logoHeightCm: 0,
+    dashBorderThicknessCm: 0.01,
+    dashBorderColor: "#aaaaaa",
+    bingkaiColorClass: "tanpa-bingkai",
+    logoSrc: null,
+    aspectRatio: 2.2 / 3.2,
+  },
+  pas_foto_3x4: {
+    name: "Pas Foto 3x4",
+    blockType: "single_item",
+    maxSlots: 1,
+    description: "Pas foto ukuran 3x4 cm.",
+    fotoWidthCm: 3.2,
+    fotoHeightCm: 4.2,
+    borderThicknessCm: 0,
+    paddingFotoCm: 0,
+    logoHeightCm: 0,
+    dashBorderThicknessCm: 0.01,
+    dashBorderColor: "#aaaaaa",
+    bingkaiColorClass: "tanpa-bingkai",
+    logoSrc: null,
+    aspectRatio: 3.2 / 4.2,
+  },
+  pas_foto_4x6: {
+    name: "Pas Foto 4x6",
+    blockType: "single_item",
+    maxSlots: 1,
+    description: "Pas foto ukuran 4x6 cm.",
+    fotoWidthCm: 4.2,
+    fotoHeightCm: 6.2,
+    borderThicknessCm: 0,
+    paddingFotoCm: 0,
+    logoHeightCm: 0,
+    dashBorderThicknessCm: 0.01,
+    dashBorderColor: "#aaaaaa",
+    bingkaiColorClass: "tanpa-bingkai",
+    logoSrc: null,
+    aspectRatio: 4.2 / 6.2,
+  },
+};
 
 export default function CetakPage() {
-  // Bingkai tidak lagi menjadi state pilihan, tapi akan ditentukan oleh posisi
-  const [selectedFotoUrls, setSelectedFotoUrls] = useState(new Set());
   const [availableFotos, setAvailableFotos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const maxFoto = 8; // Kembali ke 8 foto total untuk satu halaman A4
+  const [printItems, setPrintItems] = useState([]);
+  const [selectedSlotId, setSelectedSlotId] = useState(null);
+  const [isCroppingModalOpen, setIsCroppingModalOpen] = useState(false);
+  const [imageToCrop, setImageToCrop] = useState(null);
+  const [aspectRatio, setAspectRatio] = useState(1);
+  const [isUploading, setIsUploading] = useState(false);
+  const [slotIdForCrop, setSlotIdForCrop] = useState(null);
 
-  const fotosDipilih = Array.from(selectedFotoUrls);
-
-  const handlePilihFoto = useCallback(
-    (fotoUrl) => {
-      setSelectedFotoUrls((prev) => {
-        const newSet = new Set(prev);
-        if (newSet.has(fotoUrl)) {
-          newSet.delete(fotoUrl);
-        } else {
-          if (newSet.size < maxFoto) {
-            newSet.add(fotoUrl);
-          } else {
-            alert(`Anda hanya bisa memilih maksimal ${maxFoto} foto.`);
-          }
-        }
-        return newSet;
-      });
-    },
-    [maxFoto]
-  );
-
-  // Fungsi untuk mengambil daftar foto dari Supabase Storage
   const fetchFoto = useCallback(async () => {
     setLoading(true);
     setError(null);
-
     try {
-      // Dapatkan daftar foto dari Supabase Storage
       const { data, error: fetchError } = await supabase.storage
         .from(SUPABASE_BUCKET_NAME)
         .list("", { sortBy: { column: "created_at", order: "desc" } });
-
-      // jika ada error tampilkan error
-      if (fetchError) {
-        throw fetchError;
-      }
-
-      // ambil nama file dan buat URL publik
+      if (fetchError) throw fetchError;
       const fotosWithUrls = data.map((file) => {
         const { data: publicUrlData } = supabase.storage
           .from(SUPABASE_BUCKET_NAME)
           .getPublicUrl(file.name);
-
         return publicUrlData.publicUrl;
       });
-
       setAvailableFotos(fotosWithUrls);
     } catch (err) {
       console.error("Gagal memuat foto dari Supabase Storage:", err);
-      setError(
-        "Gagal memuat foto dari Supabase Storage. Silakan coba lagi nanti."
-      );
+      setError("Gagal memuat foto dari Supabase Storage. Silakan coba lagi.");
     } finally {
       setLoading(false);
     }
@@ -75,442 +264,381 @@ export default function CetakPage() {
     fetchFoto();
   }, [fetchFoto]);
 
+  const addPrintBlock = (templateKey, count = 1) => {
+    const templateDef = TEMPLATE_DEFINITIONS?.[templateKey];
+    if (!templateDef) return;
+
+    const newItems = [];
+    for (let i = 0; i < count; i++) {
+      if (templateDef.blockType === "composite") {
+        for (let j = 0; j < templateDef.maxSlots; j++) {
+          newItems.push({
+            id: uuidv4(),
+            templateKey,
+            slotIndex: j,
+            selectedFotoUrl: null,
+          });
+        }
+      } else {
+        newItems.push({
+          id: uuidv4(),
+          templateKey,
+          slotIndex: 0,
+          selectedFotoUrl: null,
+        });
+      }
+    }
+    setPrintItems((prevItems) => [...prevItems, ...newItems]);
+  };
+
+  const removePrintItem = (idToRemove) => {
+    setPrintItems((prevItems) =>
+      prevItems.filter((item) => item.id !== idToRemove)
+    );
+    if (selectedSlotId === idToRemove) {
+      setSelectedSlotId(null);
+    }
+  };
+
+  const handlePilihFotoToSlot = useCallback(
+    (fotoUrl) => {
+      if (!selectedSlotId) {
+        alert("Pilih slot foto di halaman A4 terlebih dahulu.");
+        return;
+      }
+      setPrintItems((prevItems) => {
+        const updatedItems = prevItems.map((item) => {
+          if (item.selectedFotoUrl === fotoUrl && item.id !== selectedSlotId) {
+            return { ...item, selectedFotoUrl: null };
+          }
+          return item;
+        });
+
+        return updatedItems.map((item) => {
+          if (item.id === selectedSlotId) {
+            if (item.selectedFotoUrl === fotoUrl) {
+              return { ...item, selectedFotoUrl: null };
+            }
+            return { ...item, selectedFotoUrl: fotoUrl };
+          }
+          return item;
+        });
+      });
+      setSelectedSlotId(null);
+    },
+    [selectedSlotId]
+  );
+
+  const handleOpenCropModal = useCallback((slotItem) => {
+    const slotTemplate = TEMPLATE_DEFINITIONS?.[slotItem.templateKey];
+    let aspect;
+    if (slotTemplate.blockType === "composite") {
+      const relativePos = slotTemplate.getRelativeFotoPosition(
+        slotItem.slotIndex
+      );
+      aspect = relativePos.aspectRatio;
+    } else {
+      aspect = slotTemplate.aspectRatio;
+    }
+
+    setSlotIdForCrop(slotItem.id);
+    setAspectRatio(aspect);
+    setImageToCrop(slotItem.selectedFotoUrl);
+    setIsCroppingModalOpen(true);
+  }, []);
+
+  const handleCropAndUpload = async (croppedBlob) => {
+    setIsCroppingModalOpen(false);
+
+    const originalUrl = printItems.find(
+      (item) => item.id === slotIdForCrop
+    )?.selectedFotoUrl;
+    if (!originalUrl) return;
+
+    const originalFileExtension = originalUrl.split(".").pop().split("?")[0];
+    const fileName = `${uuidv4()}_cropped.${originalFileExtension}`;
+
+    setIsUploading(true);
+    try {
+      const { error: uploadError } = await supabase.storage
+        .from(SUPABASE_BUCKET_NAME)
+        .upload(fileName, croppedBlob, {
+          contentType: croppedBlob.type,
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from(SUPABASE_BUCKET_NAME)
+        .getPublicUrl(fileName);
+
+      const croppedFotoUrl = publicUrlData.publicUrl;
+
+      setPrintItems((prevItems) =>
+        prevItems.map((item) =>
+          item.id === slotIdForCrop
+            ? { ...item, selectedFotoUrl: croppedFotoUrl }
+            : item
+        )
+      );
+    } catch (error) {
+      console.error("Gagal mengunggah foto yang di-crop:", error);
+      alert("Gagal mengunggah foto yang di-crop. Silakan coba lagi.");
+    } finally {
+      setSlotIdForCrop(null);
+      setImageToCrop(null);
+      setIsUploading(false);
+    }
+  };
+
   const handlePrint = () => {
-    if (fotosDipilih.length === 0) {
+    const totalFotosSelected = printItems.filter(
+      (item) => item.selectedFotoUrl
+    ).length;
+    if (totalFotosSelected === 0) {
       alert("Pilih setidaknya satu foto untuk dicetak.");
       return;
     }
     window.print();
   };
 
-  // --- Parameter Layout Cetak  ---
-  const FOTO_LEBAR_CM = 5; // Lebar total bingkai termasuk border/padding
-  const FOTO_TINGGI_CM = 8; // Tinggi total bingkai termasuk border/padding
-  const BORDER_BINGKAI_CM = 0; // Tebal border bingkai
-  const PADDING_FOTO_CM = 0.4; // Padding di dalam bingkai sebelum gambar
-  const LOGO_TINGGI_CM = 1.5; // Estimasi tinggi area logo di bawah gambar
+  const calculateItemPositions = useCallback(() => {
+    const positions = {};
+    let currentY = PAGE_INTERNAL_PADDING_CM;
+    let currentX = PAGE_INTERNAL_PADDING_CM;
+    const GAP_BETWEEN_COMPOSITE_BLOCKS_CM = 0.5;
+    const GAP_BETWEEN_SINGLE_ITEMS_CM = 0;
+    const VERTICAL_GAP_BETWEEN_BLOCKS_CM = 0.5;
 
-  // Parameter untuk border dashed (tanda gunting)
-  const DASH_BORDER_THICKNESS_CM = 0.01; // Tebal garis putus-putus
-  const DASH_BORDER_COLOR = "#ffffff"; // Warna garis putus-putus
+    const groupedItems = [];
+    let currentGroup = [];
 
-  // Hitungan untuk area gambar bersih di dalam bingkai
-  const GAMBAR_LEBAR_CM =
-    FOTO_LEBAR_CM - 2 * BORDER_BINGKAI_CM - 2 * PADDING_FOTO_CM;
-  const GAMBAR_TINGGI_CM =
-    FOTO_TINGGI_CM -
-    2 * BORDER_BINGKAI_CM -
-    2 * PADDING_FOTO_CM -
-    LOGO_TINGGI_CM;
+    printItems.forEach((item, index) => {
+      const templateDef = TEMPLATE_DEFINITIONS?.[item.templateKey];
+      if (!templateDef) return;
 
-  // Jarak antar foto di dalam grup 2x2
-  const GAP_WITHIN_GROUP_HORIZONTAL_CM = 0; // Jarak horizontal antara foto dalam 2x2
-  const GAP_WITHIN_GROUP_VERTICAL_CM = 0; // Jarak vertikal antara foto dalam 2x2
+      if (templateDef.blockType === "composite") {
+        currentGroup.push(item);
+        const nextItem = printItems?.[index + 1];
 
-  // Jarak antara template hitam dan abu-abu
-  const GAP_BETWEEN_TEMPLATES_CM = 0.5; // Jarak antara blok hitam dan abu-abu
+        if (
+          currentGroup.length === templateDef.maxSlots ||
+          !nextItem ||
+          nextItem.templateKey !== item.templateKey ||
+          (nextItem.templateKey === item.templateKey &&
+            (index + 1) % templateDef.maxSlots === 0)
+        ) {
+          groupedItems.push({
+            type: "composite",
+            templateKey: item.templateKey,
+            items: [...currentGroup],
+          });
+          currentGroup = [];
+        }
+      } else {
+        if (currentGroup.length > 0) {
+          const prevTemplateDef =
+            TEMPLATE_DEFINITIONS?.[currentGroup?.[0]?.templateKey];
+          if (prevTemplateDef && prevTemplateDef.blockType === "composite") {
+            groupedItems.push({
+              type: "composite",
+              templateKey: currentGroup?.[0]?.templateKey,
+              items: [...currentGroup],
+            });
+            currentGroup = [];
+          }
+        }
+        groupedItems.push({
+          type: "single_item",
+          templateKey: item.templateKey,
+          item: item,
+        });
+      }
+    });
 
-  // Padding kertas A4
-  const PAGE_INTERNAL_PADDING_CM = 0.2; // Sedikit lebih besar agar tidak terlalu mepet
-
-  // Posisi absolut untuk setiap foto di dalam A4 (4 hitam kiri, 4 abu-abu kanan)
-  const getFotoPosition = (index) => {
-    let x, y;
-    let fotoGroupIndex; // Index dalam grup
-
-    if (index < 4) {
-      // Template Hitam (indeks 0, 1, 2, 3)
-      fotoGroupIndex = index;
-      const col = fotoGroupIndex % 2; // Kolom 0 atau 1
-      const row = Math.floor(fotoGroupIndex / 2); // Baris 0 atau 1
-
-      x =
-        PAGE_INTERNAL_PADDING_CM +
-        col * (FOTO_LEBAR_CM + GAP_WITHIN_GROUP_HORIZONTAL_CM);
-      y =
-        PAGE_INTERNAL_PADDING_CM +
-        row * (FOTO_TINGGI_CM + GAP_WITHIN_GROUP_VERTICAL_CM);
-    } else {
-      // Template Abu-abu
-      fotoGroupIndex = index - 4;
-      const col = fotoGroupIndex % 2;
-      const row = Math.floor(fotoGroupIndex / 2);
-
-      // Hitung offset X untuk template abu-abu
-      const offsetXTemplates =
-        PAGE_INTERNAL_PADDING_CM + // Padding awal
-        2 * FOTO_LEBAR_CM + // Lebar 2 foto hitam
-        1 * GAP_WITHIN_GROUP_HORIZONTAL_CM + // 1 jarak antar foto hitam
-        GAP_BETWEEN_TEMPLATES_CM; // Jarak antara template
-
-      x =
-        offsetXTemplates +
-        col * (FOTO_LEBAR_CM + GAP_WITHIN_GROUP_HORIZONTAL_CM);
-      y =
-        PAGE_INTERNAL_PADDING_CM +
-        row * (FOTO_TINGGI_CM + GAP_WITHIN_GROUP_VERTICAL_CM);
+    if (currentGroup.length > 0) {
+      const prevTemplateDef =
+        TEMPLATE_DEFINITIONS?.[currentGroup?.[0]?.templateKey];
+      if (prevTemplateDef && prevTemplateDef.blockType === "composite") {
+        groupedItems.push({
+          type: "composite",
+          templateKey: currentGroup?.[0]?.templateKey,
+          items: [...currentGroup],
+        });
+      }
     }
-    return { top: `${y}cm`, left: `${x}cm` };
-  };
+
+    let currentRowMaxHeight = 0;
+    let prevGroup = null;
+
+    groupedItems.forEach((group) => {
+      let blockWidth, blockHeight;
+      const groupTemplateDef = TEMPLATE_DEFINITIONS?.[group.templateKey];
+      if (!groupTemplateDef) return;
+
+      if (group.type === "composite") {
+        blockWidth = groupTemplateDef.blockWidthCm;
+        blockHeight = groupTemplateDef.blockHeightCm;
+      } else {
+        blockWidth = groupTemplateDef.fotoWidthCm;
+        blockHeight = groupTemplateDef.fotoHeightCm;
+      }
+
+      let currentGap = 0;
+      if (prevGroup) {
+        if (prevGroup.type === "single_item" && group.type === "single_item") {
+          currentGap = GAP_BETWEEN_SINGLE_ITEMS_CM;
+        } else {
+          currentGap = GAP_BETWEEN_COMPOSITE_BLOCKS_CM;
+        }
+      }
+
+      if (
+        currentX + blockWidth + currentGap + PAGE_INTERNAL_PADDING_CM >
+        A4_WIDTH_CM + 0.001
+      ) {
+        currentX = PAGE_INTERNAL_PADDING_CM;
+        currentY += currentRowMaxHeight + VERTICAL_GAP_BETWEEN_BLOCKS_CM;
+        currentRowMaxHeight = 0;
+        currentGap = 0;
+      }
+
+      currentRowMaxHeight = Math.max(currentRowMaxHeight, blockHeight);
+
+      const blockAbsoluteStartX = currentX;
+      const blockAbsoluteStartY = currentY;
+
+      if (group.type === "composite") {
+        group.items.forEach((itemInGroup) => {
+          const relativePos = groupTemplateDef.getRelativeFotoPosition(
+            itemInGroup.slotIndex
+          );
+
+          let itemConfig;
+
+          if (group.templateKey.startsWith("4x4")) {
+            itemConfig = {
+              ...groupTemplateDef,
+              ...relativePos,
+              fotoWidthCm: groupTemplateDef.FOTO_LEBAR_CM,
+              fotoHeightCm: groupTemplateDef.FOTO_TINGGI_CM,
+              borderThicknessCm: groupTemplateDef.BORDER_BINGKAI_CM,
+              paddingFotoCm: groupTemplateDef.PADDING_FOTO_CM,
+              logoHeightCm: relativePos.logoHeightCm,
+              logoSrc: relativePos.logoSrc,
+              dashBorderThicknessCm: groupTemplateDef.DASH_BORDER_THICKNESS_CM,
+              dashBorderColor: groupTemplateDef.DASH_BORDER_COLOR,
+            };
+          } else if (group.templateKey.startsWith("3x2")) {
+            const { LOGO_TINGGI_CM, logoSrc, ...restOfTemplateDef } =
+              groupTemplateDef;
+            itemConfig = {
+              ...restOfTemplateDef,
+              ...relativePos,
+              fotoWidthCm: groupTemplateDef.FOTO_LEBAR_CM,
+              fotoHeightCm: groupTemplateDef.FOTO_TINGGI_CM,
+              borderThicknessCm: groupTemplateDef.BORDER_BINGKAI_CM,
+              paddingFotoCm: groupTemplateDef.PADDING_FOTO_CM,
+              logoHeightCm: 0,
+              logoSrc: null,
+            };
+          }
+
+          positions[`${itemInGroup.id}`] = {
+            top: `${blockAbsoluteStartY + parseFloat(relativePos.top)}cm`,
+            left: `${blockAbsoluteStartX + parseFloat(relativePos.left)}cm`,
+            config: itemConfig,
+            isLogo: false,
+          };
+        });
+
+        // HANYA UNTUK 3x2: Tambahkan LOGO di bawah bingkai
+        if (group.templateKey.startsWith("3x2")) {
+          const logoTemplateDef = TEMPLATE_DEFINITIONS?.[group.templateKey];
+          if (logoTemplateDef?.logoSrc && logoTemplateDef?.LOGO_TINGGI_CM > 0) {
+            const logoId = `${group.items?.[group.items.length - 1]?.id}-logo`;
+
+            // Perbaikan di sini: Menghitung posisi logo dari bawah blockHeightCm
+            const logoTop =
+              blockAbsoluteStartY +
+              groupTemplateDef.blockHeightCm -
+              logoTemplateDef.LOGO_TINGGI_CM -
+              groupTemplateDef.BORDER_BINGKAI_CM;
+
+            // Perbaikan di sini: Menghitung posisi kiri logo dari blockAbsoluteStartX
+            const logoLeft =
+              blockAbsoluteStartX + groupTemplateDef.BORDER_BINGKAI_CM;
+
+            positions[`${logoId}`] = {
+              top: `${logoTop}cm`,
+              left: `${logoLeft}cm`,
+              config: {
+                logoSrc: logoTemplateDef.logoSrc,
+                logoHeightCm: logoTemplateDef.LOGO_TINGGI_CM,
+                fotoWidthCm:
+                  groupTemplateDef.blockWidthCm -
+                  2 * groupTemplateDef.BORDER_BINGKAI_CM,
+                fotoHeightCm: logoTemplateDef.LOGO_TINGGI_CM,
+                bingkaiColorClass: groupTemplateDef.bingkaiColorClass,
+              },
+              isLogo: true,
+            };
+          }
+        }
+      } else {
+        positions[`${group.item.id}`] = {
+          top: `${blockAbsoluteStartY}cm`,
+          left: `${blockAbsoluteStartX}cm`,
+          config: groupTemplateDef,
+          isLogo: false,
+        };
+      }
+
+      currentX += blockWidth + currentGap;
+      prevGroup = group;
+    });
+    return positions;
+  }, [printItems]);
+
+  const itemPositions = calculateItemPositions();
 
   return (
     <>
-      <style jsx global>{`
-        /* Reset umum */
-        html,
-        body {
-          margin: 0;
-          padding: 0;
-          overflow-x: hidden;
-          background-color: #f3f4f6; /* Latar belakang default untuk web */
-        }
-
-        /* --- Gaya Untuk Tampilan Web --- */
-        #print-root {
-          padding-top: 60px; /* Jarak atas, sesuaikan jika ada navbar */
-          display: flex;
-          flex-direction: row;
-          justify-content: center;
-          align-items: flex-start;
-          width: 100vw;
-          min-height: 100vh;
-          overflow: auto; /* Mengizinkan scroll jika konten melebihi layar */
-        }
-
-        .a4-container-web {
-          flex: 1; /* Mengambil sisa ruang */
-          padding: 20px; /* Padding di sekitar kertas A4 */
-          display: flex;
-          justify-content: center;
-          align-items: flex-start;
-          overflow: auto;
-        }
-
-        .a4-paper-web {
-          width: 21cm;
-          height: 29.7cm; /* Tetap A4 di web untuk preview */
-          background-color: white;
-          box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-          border: 1px solid #ccc;
-          position: relative; /* Penting untuk foto absolut di web preview */
-          box-sizing: border-box; /* Padding termasuk dalam ukuran */
-        }
-
-        .right-panel {
-          width: 320px; /* Lebar tetap untuk panel kontrol */
-          flex-shrink: 0;
-          background-color: white;
-          border-left: 1px solid #e5e7eb;
-          padding: 20px;
-          overflow-y: auto;
-          position: sticky; /* Tetap terlihat saat scroll A4 */
-          top: 60px; /* Sejajarkan dengan padding-top #print-root */
-          height: calc(100vh - 60px); /* Isi sisa tinggi viewport */
-        }
-
-        /* Gaya Bingkai Foto di Web & Print (CSS dasar yang sama) */
-        .foto-bingkai-item {
-          width: ${FOTO_LEBAR_CM}cm;
-          height: ${FOTO_TINGGI_CM}cm;
-          box-sizing: border-box;
-          overflow: hidden;
-          position: absolute; /* Penting untuk posisi di A4 */
-        }
-
-        /* Kelas spesifik untuk warna bingkai */
-        .foto-bingkai-item.hitam {
-          border: ${BORDER_BINGKAI_CM}cm solid #000;
-          background-color: #000;
-        }
-        .foto-bingkai-item.abu {
-          border: ${BORDER_BINGKAI_CM}cm solid #aaa;
-          background-color: #aaa;
-        }
-
-        .foto-bingkai-item .image-wrapper {
-          position: absolute;
-          top: ${BORDER_BINGKAI_CM + PADDING_FOTO_CM}cm;
-          left: ${BORDER_BINGKAI_CM + PADDING_FOTO_CM}cm;
-          width: ${GAMBAR_LEBAR_CM}cm;
-          height: ${GAMBAR_TINGGI_CM}cm;
-          overflow: hidden;
-          background-color: #ddd; /* Placeholder */
-          z-index: 2; /* Di atas background bingkai */
-
-          /* Pemusatan dengan flexbox di image-wrapper (untuk span "Pilih Foto") */
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        /* Gaya khusus untuk Image di dalam image-wrapper */
-        .foto-bingkai-item .image-wrapper > div {
-          /* Target div yang dihasilkan Next.js Image */
-          position: absolute !important; /* Pastikan ini absolute relatif terhadap image-wrapper */
-          top: 50% !important;
-          left: 50% !important;
-          transform: translate(-50%, -50%) !important; /* Pemusatan transform */
-          width: 100% !important; /* Pastikan mengisi area */
-          height: 100% !important; /* Pastikan mengisi area */
-        }
-        .foto-bingkai-item .image-wrapper img {
-          width: 100% !important; /* Paksa gambar mengisi lebar kontainer */
-          height: 100% !important; /* Paksa gambar mengisi tinggi kontainer */
-          object-fit: cover !important; /* Pastikan gambar mengisi tanpa merusak aspek rasio */
-        }
-        /* Gaya khusus untuk span "Pilih Foto" */
-        .foto-bingkai-item .image-wrapper span {
-          text-align: center;
-          width: 100%; /* Pastikan span mengambil lebar penuh untuk text-align center */
-        }
-
-        .foto-bingkai-item .logo-wrapper {
-          position: absolute;
-          width: ${FOTO_LEBAR_CM - 2 * BORDER_BINGKAI_CM}cm;
-          height: ${LOGO_TINGGI_CM}cm;
-          bottom: ${BORDER_BINGKAI_CM}cm;
-          left: ${BORDER_BINGKAI_CM}cm;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          z-index: 2; /* Di atas background bingkai */
-        }
-
-        /* Div untuk garis putus-putus */
-        .foto-bingkai-item .cut-line {
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          border: ${DASH_BORDER_THICKNESS_CM}cm dashed ${DASH_BORDER_COLOR};
-          box-sizing: border-box;
-          pointer-events: none; /* Agar tidak mengganggu interaksi */
-          z-index: 3; /* Pastikan di atas gambar dan logo di web preview */
-        }
-
-        /* --- Gaya Khusus Untuk Cetak (@media print) --- */
-        @media print {
-          /* Kunci untuk mencetak warna latar belakang dan gambar persis */
-          .foto-bingkai-item,
-          .a4-paper-web {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
-          /* Sembunyikan semua elemen anak langsung dari BODY KECUALI yang memiliki ID 'print-root' */
-          body > *:not(#print-root) {
-            display: none !important;
-          }
-
-          /* Atur #print-root untuk layout cetak */
-          #print-root {
-            width: 100vw !important;
-            height: 100vh !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            box-shadow: none !important;
-            overflow: hidden !important;
-            background-color: white !important;
-            flex-direction: column !important;
-            justify-content: flex-start !important;
-            align-items: center !important;
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-          }
-
-          /* Sembunyikan panel kanan saat cetak */
-          .right-panel {
-            display: none !important;
-          }
-
-          /* Atur kontainer A4 untuk cetak */
-          .a4-container-web {
-            flex: none !important;
-            padding: 0 !important;
-            background-color: white !important;
-            display: block !important;
-            width: 100% !important;
-            height: auto !important;
-            overflow: visible !important;
-            box-sizing: border-box !important;
-          }
-
-          /* Kertas A4 utama untuk cetak */
-          .a4-paper-web {
-            width: 21cm !important;
-            height: 29.7cm !important;
-            min-height: 29.7cm !important;
-            border: none !important; /* Hapus border di hasil cetak */
-            box-shadow: none !important; /* Hapus shadow di hasil cetak */
-            margin: 0 auto !important;
-            position: relative !important; /* Pertahankan ini untuk posisi absolut anak */
-            padding: 0 !important; /* Jangan ada padding di sini, biar foto pas */
-            box-sizing: border-box !important;
-          }
-
-          /* Gaya Bingkai Foto di Cetak */
-          .foto-bingkai-item {
-            position: absolute !important;
-          }
-          /* Kelas spesifik untuk warna bingkai saat cetak */
-          .foto-bingkai-item.hitam {
-            border: ${BORDER_BINGKAI_CM}cm solid #000 !important;
-            background-color: #000 !important;
-          }
-          .foto-bingkai-item.abu {
-            border: ${BORDER_BINGKAI_CM}cm solid #aaa !important;
-            background-color: #aaa !important;
-          }
-
-          .foto-bingkai-item .image-wrapper {
-            /* Pastikan display flex tetap ada untuk span "Pilih Foto" */
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            z-index: 5 !important; /* Di bawah cut-line untuk cetak */
-          }
-
-          /* Gaya khusus untuk Image di dalam image-wrapper saat cetak */
-          .foto-bingkai-item .image-wrapper > div {
-            /* Target div yang dihasilkan Next.js Image */
-            position: absolute !important;
-            top: 50% !important;
-            left: 50% !important;
-            transform: translate(-50%, -50%) !important;
-            width: 100% !important;
-            height: 100% !important;
-          }
-          .foto-bingkai-item .image-wrapper img {
-            width: 100% !important;
-            height: 100% !important;
-            object-fit: cover !important;
-          }
-          .foto-bingkai-item .image-wrapper span {
-            text-align: center !important;
-          }
-
-          .foto-bingkai-item .logo-wrapper {
-            z-index: 5 !important; /* Di bawah cut-line untuk cetak */
-          }
-
-          .foto-bingkai-item .cut-line {
-            z-index: 10 !important; /* Pastikan di atas semua konten untuk cetak */
-          }
-
-          /* Pengaturan Halaman untuk Cetak Tanpa Tepi */
-          @page {
-            size: A4 portrait;
-            margin: 0; /* Set margin ke 0 untuk cetak tanpa tepi */
-          }
-        }
-      `}</style>
-
+      <CetakHeader onPrint={handlePrint} />
       <div id="print-root">
-        <div className="a4-container-web">
-          <div className="a4-paper-web">
-            {Array.from({ length: maxFoto }).map((_, index) => {
-              const foto = fotosDipilih?.[index];
-              const { top, left } = getFotoPosition(index);
-              // Tentukan warna bingkai berdasarkan index
-              const bingkaiColorClass = index < 4 ? "hitam" : "abu";
-              const logoSrc = index < 4 ? "/logoPutih.png" : "/logoHitam.png";
+        <PrintArea
+          printItems={printItems}
+          itemPositions={itemPositions}
+          selectedSlotId={selectedSlotId}
+          setSelectedSlotId={setSelectedSlotId}
+          handleOpenCropModal={handleOpenCropModal}
+          TEMPLATE_DEFINITIONS={TEMPLATE_DEFINITIONS}
+        />
+        <RightPanel
+          availableFotos={availableFotos}
+          loading={loading}
+          error={error}
+          printItems={printItems}
+          selectedSlotId={selectedSlotId}
+          handlePilihFotoToSlot={handlePilihFotoToSlot}
+          addPrintBlock={addPrintBlock}
+          removePrintItem={removePrintItem}
+          TEMPLATE_DEFINITIONS={TEMPLATE_DEFINITIONS}
+        />
 
-              return (
-                <div
-                  key={index}
-                  className={`foto-bingkai-item ${bingkaiColorClass}`} // Tambahkan kelas warna
-                  style={{ top: top, left: left }}
-                >
-                  <div className="cut-line"></div>
-
-                  <div className="image-wrapper">
-                    {foto ? (
-                      <Image
-                        src={foto}
-                        alt={`Foto terpilih ${index + 1}`}
-                        fill
-                        style={{
-                          objectFit: "cover",
-                        }}
-                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                      />
-                    ) : (
-                      <span className="text-gray-500 text-xs">Pilih Foto</span>
-                    )}
-                  </div>
-
-                  <div className="logo-wrapper">
-                    <Image
-                      src={logoSrc} // Logo sesuai warna bingkai
-                      alt="Logo Studio"
-                      width={100}
-                      height={50}
-                      style={{ objectFit: "contain" }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="right-panel p-4">
-          <h2 className="text-xl font-bold mb-4">Pengaturan Cetak</h2>
-
-          <div className="mb-6">
-            <p className="text-base text-gray-700 mb-2">
-              Foto dipilih:{" "}
-              <span className="font-semibold text-lg">
-                {fotosDipilih.length}
-              </span>{" "}
-              dari {maxFoto}
-            </p>
-            <button
-              onClick={handlePrint}
-              className="bg-emerald-600 text-white px-5 py-2.5 rounded-lg text-lg font-semibold hover:bg-emerald-700 w-full disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-              disabled={fotosDipilih.length === 0}
-            >
-              Cetak Sekarang
-            </button>
-          </div>
-
-          <h3 className="text-lg font-semibold mb-4 border-b pb-2">
-            Galeri Foto
-          </h3>
-
-          {loading && (
-            <p className="text-center text-gray-500 py-4">Memuat foto...</p>
-          )}
-          {error && <p className="text-center text-red-500 py-4">{error}</p>}
-          {!loading && !error && availableFotos.length === 0 && (
-            <p className="text-center text-gray-500 py-4">
-              Tidak ada foto tersedia di server.
-            </p>
-          )}
-          <div className="grid grid-cols-2 gap-3 mt-4">
-            {availableFotos.map((fotoUrl, index) => (
-              <div
-                key={index}
-                className={`cursor-pointer border-2 rounded-md overflow-hidden transition-all duration-200 ${
-                  selectedFotoUrls.has(fotoUrl)
-                    ? "border-green-500 ring-2 ring-green-500"
-                    : "border-gray-200 hover:border-gray-400"
-                }`}
-                onClick={() => handlePilihFoto(fotoUrl)}
-              >
-                <Image
-                  src={fotoUrl}
-                  alt={`Foto tersedia ${index + 1}`}
-                  width={200}
-                  height={150}
-                  className="object-cover w-full h-24"
-                />
-              </div>
-            ))}
-          </div>
-        </div>
+        {isCroppingModalOpen && (
+          <CropperModal
+            imageSrc={imageToCrop}
+            aspectRatio={aspectRatio}
+            onClose={() => {
+              setIsCroppingModalOpen(false);
+              setImageToCrop(null);
+              setSlotIdForCrop(null);
+            }}
+            onCropComplete={handleCropAndUpload}
+          />
+        )}
       </div>
     </>
   );
