@@ -127,14 +127,6 @@ const PrintItem = ({
         ) : (
           <span className="text-gray-500 text-xs">Pilih Foto</span>
         )}
-
-        <Image
-          src={logoSrc}
-          alt="Logo Studio"
-          width={100}
-          height={50}
-          style={{ objectFit: "contain" }}
-        />
       </div>
       {fotoUrl && (
         <button
