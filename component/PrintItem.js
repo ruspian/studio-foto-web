@@ -1,4 +1,3 @@
-// components/PrintItem.js
 "use client";
 
 import React from "react";
@@ -12,25 +11,34 @@ const PrintItem = ({
   isSelected,
   onClick,
   onCropClick,
-  isLogo,
+  isBlock,
+  blockData,
+  selectedSlotId,
+  setSelectedSlotId,
 }) => {
   if (!config) return null;
 
-  // --- Render item logo terpisah (KHUSUS UNTUK 3x2) ---
-  if (isLogo) {
-    const { logoSrc, logoHeightCm, fotoWidthCm, bingkaiColorClass } = config;
+  // --- RENDER BLOK KOMPOSIT (UNTUK TEMPLATE 3x2) ---
+  if (isBlock) {
+    const {
+      blockWidthCm,
+      blockHeightCm,
+      bingkaiColorClass,
+      FOTO_LEBAR_CM,
+      FOTO_TINGGI_CM,
+      LOGO_TINGGI_CM,
+      logoSrc,
+      BORDER_BINGKAI_CM,
+    } = config;
+
     return (
       <div
-        className={`logo-item ${bingkaiColorClass}`}
+        className="composite-block"
         style={{
-          width: `${fotoWidthCm}cm`,
-          height: `${logoHeightCm}cm`,
+          width: `${blockWidthCm}cm`,
+          height: `${blockHeightCm}cm`,
           top: position.top,
           left: position.left,
-          position: "absolute",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
           backgroundColor:
             bingkaiColorClass === "hitam"
               ? "#000"
@@ -39,20 +47,63 @@ const PrintItem = ({
               : "transparent",
         }}
       >
-        {logoSrc && (
-          <Image
-            src={logoSrc}
-            alt="Logo Studio"
-            width={100}
-            height={50}
-            style={{ objectFit: "contain" }}
-          />
-        )}
+        {/* Render semua slot foto di dalam blok */}
+        {blockData.map((slot) => {
+          const slotConfig = {
+            ...config,
+            fotoWidthCm: FOTO_LEBAR_CM,
+            fotoHeightCm: FOTO_TINGGI_CM,
+          };
+          return (
+            <PrintItem
+              key={slot.slotId}
+              fotoUrl={slot.selectedFotoUrl}
+              config={slotConfig}
+              position={{ top: "0", left: "0" }}
+              isSelected={selectedSlotId === slot.slotId}
+              onClick={() => setSelectedSlotId(slot.slotId)}
+              onCropClick={() =>
+                onCropClick({ ...slot, templateKey: config.templateKey })
+              }
+            />
+          );
+        })}
+
+        {/* Render area logo di bagian bawah blok */}
+        <div
+          className="logo-item"
+          style={{
+            height: `${LOGO_TINGGI_CM}cm`,
+            width: `${FOTO_LEBAR_CM}cm`,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            position: "relative",
+          }}
+        >
+          <div
+            style={{
+              width: `${FOTO_LEBAR_CM - 2 * BORDER_BINGKAI_CM}cm`,
+              height: `${LOGO_TINGGI_CM - 2 * BORDER_BINGKAI_CM}cm`,
+              position: "relative",
+            }}
+          >
+            {logoSrc && (
+              <Image
+                src={logoSrc}
+                alt="Logo Studio"
+                fill
+                style={{ objectFit: "contain" }}
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              />
+            )}
+          </div>
+        </div>
       </div>
     );
   }
 
-  // --- Render item foto normal (Untuk 4x4 dan 3x2) ---
+  // --- RENDER ITEM FOTO UNTUK PAS FOTO ATAU SLOTS 4X4 ---
   const {
     fotoWidthCm,
     fotoHeightCm,
@@ -95,6 +146,12 @@ const PrintItem = ({
             : bingkaiColorClass === "abu"
             ? "#aaa"
             : "transparent",
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        position: isBlock ? "relative" : "absolute",
       }}
       onClick={onClick}
     >
@@ -110,10 +167,9 @@ const PrintItem = ({
       <div
         className="image-wrapper"
         style={{
-          top: `${borderThicknessCm + paddingFotoCm}cm`,
-          left: `${borderThicknessCm + paddingFotoCm}cm`,
           width: `${imageWidth}cm`,
           height: `${imageHeight}cm`,
+          position: "relative",
         }}
       >
         {fotoUrl ? (
@@ -122,10 +178,14 @@ const PrintItem = ({
             alt="Foto terpilih"
             fill
             style={{ objectFit: "cover" }}
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           />
         ) : (
-          <span className="text-gray-500 text-xs">Pilih Foto</span>
+          <>
+            {logoSrc === null && (
+              <span className="text-gray-500 text-xs">Pilih Foto</span>
+            )}
+          </>
         )}
       </div>
       {fotoUrl && (
@@ -141,21 +201,21 @@ const PrintItem = ({
         </button>
       )}
       {/* LOGO per foto hanya untuk template 4x4 */}
-      {logoSrc && logoHeightCm > 0 && !isLogo && (
+      {logoSrc && logoHeightCm > 0 && (
         <div
           className="logo-wrapper"
           style={{
-            width: `${fotoWidthCm - 2 * borderThicknessCm}cm`,
-            height: `${logoHeightCm}cm`,
-            bottom: `${borderThicknessCm}cm`,
+            width: 100,
+            height: 50,
+            bottom: 0,
             left: `${borderThicknessCm}cm`,
+            position: "relative",
           }}
         >
           <Image
             src={logoSrc}
             alt="Logo Studio"
-            width={100}
-            height={50}
+            fill
             style={{ objectFit: "contain" }}
           />
         </div>

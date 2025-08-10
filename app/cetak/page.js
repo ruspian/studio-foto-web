@@ -107,12 +107,13 @@ const TEMPLATE_DEFINITIONS = {
     description: "Layout 3 foto vertikal dengan logo di bawah bingkai hitam.",
     blockWidthCm: 6.5,
     blockHeightCm: 18.5,
-    FOTO_LEBAR_CM: 5.5,
-    FOTO_TINGGI_CM: (18.5 - 0.5 - 2.1 - 0.5) / 3,
-    BORDER_BINGKAI_CM: 0.5,
-    PADDING_FOTO_CM: 0.4,
-    LOGO_TINGGI_CM: 2.1,
+    FOTO_LEBAR_CM: 5,
+    FOTO_TINGGI_CM: (18.5 - 0.1 - 2.1 - 0.1) / 3,
+    BORDER_BINGKAI_CM: 0.2,
+    PADDING_FOTO_CM: 0.2,
+    LOGO_TINGGI_CM: 1.5,
     logoSrc: "/logoPutih.png",
+    bingkaiColorClass: "hitam",
     GAP_WITHIN_GROUP_HORIZONTAL_CM: 0,
     GAP_WITHIN_GROUP_VERTICAL_CM: 0,
     GAP_BETWEEN_TEMPLATES_CM: 0,
@@ -129,8 +130,6 @@ const TEMPLATE_DEFINITIONS = {
       return {
         top: `${y}cm`,
         left: `${x}cm`,
-        logoSrc: "/logoPutih.png",
-        logoHeightCm: TEMPLATE_DEFINITIONS["3x2_logo_hitam"].LOGO_TINGGI_CM,
         bingkaiColorClass: "hitam",
         aspectRatio: GAMBAR_LEBAR_CM / GAMBAR_TINGGI_CM,
       };
@@ -145,12 +144,13 @@ const TEMPLATE_DEFINITIONS = {
     description: "Layout 3 foto vertikal dengan logo di bawah bingkai abu-abu.",
     blockWidthCm: 6.5,
     blockHeightCm: 18.5,
-    FOTO_LEBAR_CM: 5.5,
-    FOTO_TINGGI_CM: (18.5 - 0.5 - 2.1 - 0.5) / 3,
-    BORDER_BINGKAI_CM: 0.5,
-    PADDING_FOTO_CM: 0.4,
-    LOGO_TINGGI_CM: 2.1,
+    FOTO_LEBAR_CM: 5,
+    FOTO_TINGGI_CM: (18.5 - 2.1) / 3,
+    BORDER_BINGKAI_CM: 0.2,
+    PADDING_FOTO_CM: 0.2,
+    LOGO_TINGGI_CM: 1.5,
     logoSrc: "/logoHitam.png",
+    bingkaiColorClass: "abu",
     GAP_WITHIN_GROUP_HORIZONTAL_CM: 0,
     GAP_WITHIN_GROUP_VERTICAL_CM: 0,
     GAP_BETWEEN_TEMPLATES_CM: 0,
@@ -167,8 +167,6 @@ const TEMPLATE_DEFINITIONS = {
       return {
         top: `${y}cm`,
         left: `${x}cm`,
-        logoSrc: "/logoHitam.png",
-        logoHeightCm: TEMPLATE_DEFINITIONS["3x2_logo_abu"].LOGO_TINGGI_CM,
         bingkaiColorClass: "abu",
         aspectRatio: GAMBAR_LEBAR_CM / GAMBAR_TINGGI_CM,
       };
@@ -303,7 +301,7 @@ export default function CetakPage() {
   const handlePilihFotoToSlot = useCallback(
     (fotoUrl) => {
       if (!selectedSlotId) {
-        alert("Pilih slot foto di halaman A4 terlebih dahulu.");
+        alert("Klik Bibgkai dulu coy, baru pilih foto!");
         return;
       }
       setPrintItems((prevItems) => {
@@ -383,7 +381,7 @@ export default function CetakPage() {
         )
       );
     } catch (error) {
-      console.error("Gagal mengunggah foto yang di-crop:", error);
+      console.error("Mohon bersabar ini ujian:", error);
       alert("Gagal mengunggah foto yang di-crop. Silakan coba lagi.");
     } finally {
       setSlotIdForCrop(null);
@@ -403,12 +401,14 @@ export default function CetakPage() {
     window.print();
   };
 
-  const calculateItemPositions = useCallback(() => {
-    const positions = {};
+  // --- LOGIKA UTAMA PERUBAHAN ---
+  // Fungsi yang mengembalikan satu objek lengkap untuk dirender
+  const calculateAllItemsToRender = useCallback(() => {
+    const allItemsToRender = {};
     let currentY = PAGE_INTERNAL_PADDING_CM;
     let currentX = PAGE_INTERNAL_PADDING_CM;
-    const GAP_BETWEEN_COMPOSITE_BLOCKS_CM = 0.5;
-    const GAP_BETWEEN_SINGLE_ITEMS_CM = 0;
+    const GAP_BETWEEN_COMPOSITE_BLOCKS_CM = 0;
+    const GAP_BETWEEN_SINGLE_ITEMS_CM = 0.5;
     const VERTICAL_GAP_BETWEEN_BLOCKS_CM = 0.5;
 
     const groupedItems = [];
@@ -485,7 +485,7 @@ export default function CetakPage() {
         blockHeight = groupTemplateDef.fotoHeightCm;
       }
 
-      let currentGap = 0;
+      let currentGap = 0.5;
       if (prevGroup) {
         if (prevGroup.type === "single_item" && group.type === "single_item") {
           currentGap = GAP_BETWEEN_SINGLE_ITEMS_CM;
@@ -501,7 +501,7 @@ export default function CetakPage() {
         currentX = PAGE_INTERNAL_PADDING_CM;
         currentY += currentRowMaxHeight + VERTICAL_GAP_BETWEEN_BLOCKS_CM;
         currentRowMaxHeight = 0;
-        currentGap = 0;
+        currentGap = 0.5;
       }
 
       currentRowMaxHeight = Math.max(currentRowMaxHeight, blockHeight);
@@ -545,51 +545,65 @@ export default function CetakPage() {
             };
           }
 
-          positions[`${itemInGroup.id}`] = {
-            top: `${blockAbsoluteStartY + parseFloat(relativePos.top)}cm`,
-            left: `${blockAbsoluteStartX + parseFloat(relativePos.left)}cm`,
+          // Tambahkan item foto ke dalam objek
+          allItemsToRender[itemInGroup.id] = {
+            ...itemInGroup,
+            position: {
+              top: `${blockAbsoluteStartY + parseFloat(relativePos.top)}cm`,
+              left: `${blockAbsoluteStartX + parseFloat(relativePos.left)}cm`,
+            },
             config: itemConfig,
             isLogo: false,
           };
         });
 
-        // HANYA UNTUK 3x2: Tambahkan LOGO di bawah bingkai
         if (group.templateKey.startsWith("3x2")) {
           const logoTemplateDef = TEMPLATE_DEFINITIONS?.[group.templateKey];
           if (logoTemplateDef?.logoSrc && logoTemplateDef?.LOGO_TINGGI_CM > 0) {
             const logoId = `${group.items?.[group.items.length - 1]?.id}-logo`;
 
-            // Perbaikan di sini: Menghitung posisi logo dari bawah blockHeightCm
             const logoTop =
               blockAbsoluteStartY +
               groupTemplateDef.blockHeightCm -
               logoTemplateDef.LOGO_TINGGI_CM -
               groupTemplateDef.BORDER_BINGKAI_CM;
 
-            // Perbaikan di sini: Menghitung posisi kiri logo dari blockAbsoluteStartX
             const logoLeft =
               blockAbsoluteStartX + groupTemplateDef.BORDER_BINGKAI_CM;
 
-            positions[`${logoId}`] = {
-              top: `${logoTop}cm`,
-              left: `${logoLeft}cm`,
+            // Tambahkan item logo ke dalam objek
+            allItemsToRender[logoId] = {
+              id: logoId,
+              templateKey: group.templateKey,
+              selectedFotoUrl: null,
+              position: {
+                top: 620,
+                left: `${
+                  blockAbsoluteStartX + groupTemplateDef.BORDER_BINGKAI_CM / 20
+                }cm`,
+              },
+
               config: {
                 logoSrc: logoTemplateDef.logoSrc,
                 logoHeightCm: logoTemplateDef.LOGO_TINGGI_CM,
-                fotoWidthCm:
-                  groupTemplateDef.blockWidthCm -
-                  2 * groupTemplateDef.BORDER_BINGKAI_CM,
+                fotoWidthCm: 5,
                 fotoHeightCm: logoTemplateDef.LOGO_TINGGI_CM,
                 bingkaiColorClass: groupTemplateDef.bingkaiColorClass,
+                borderThicknessCm: groupTemplateDef.BORDER_BINGKAI_CM,
+                paddingFotoCm: groupTemplateDef.PADDING_FOTO_CM,
               },
               isLogo: true,
             };
           }
         }
       } else {
-        positions[`${group.item.id}`] = {
-          top: `${blockAbsoluteStartY}cm`,
-          left: `${blockAbsoluteStartX}cm`,
+        // Tambahkan item tunggal ke dalam objek
+        allItemsToRender[group.item.id] = {
+          ...group.item,
+          position: {
+            top: `${blockAbsoluteStartY}cm`,
+            left: `${blockAbsoluteStartX}cm`,
+          },
           config: groupTemplateDef,
           isLogo: false,
         };
@@ -598,22 +612,21 @@ export default function CetakPage() {
       currentX += blockWidth + currentGap;
       prevGroup = group;
     });
-    return positions;
+    return allItemsToRender;
   }, [printItems]);
 
-  const itemPositions = calculateItemPositions();
+  const allItemsToRender = calculateAllItemsToRender();
 
   return (
     <>
       <CetakHeader onPrint={handlePrint} />
       <div id="print-root">
         <PrintArea
-          printItems={printItems}
-          itemPositions={itemPositions}
+          // Perbarui prop yang dikirimkan ke PrintArea
+          allItems={allItemsToRender}
           selectedSlotId={selectedSlotId}
           setSelectedSlotId={setSelectedSlotId}
           handleOpenCropModal={handleOpenCropModal}
-          TEMPLATE_DEFINITIONS={TEMPLATE_DEFINITIONS}
         />
         <RightPanel
           availableFotos={availableFotos}

@@ -1,3 +1,4 @@
+// components/PrintArea.js
 "use client";
 
 import React from "react";
@@ -7,8 +8,7 @@ const A4_WIDTH_CM = 21;
 const A4_HEIGHT_CM = 29.7;
 
 const PrintArea = ({
-  printItems,
-  itemPositions,
+  allItems, // Prop baru yang berisi semua item (foto & logo)
   selectedSlotId,
   setSelectedSlotId,
   handleOpenCropModal,
@@ -16,21 +16,24 @@ const PrintArea = ({
   return (
     <div className="a4-container-web">
       <div className="a4-paper-web">
-        {printItems.map((item) => {
-          const itemPositionInfo = itemPositions[item.id];
-          if (!itemPositionInfo) return null;
-
-          const { top, left, config } = itemPositionInfo;
-
+        {/* Menggunakan Object.values untuk memetakan semua item di objek */}
+        {Object.values(allItems).map((item) => {
+          const { id, selectedFotoUrl, config, position, isLogo } = item;
           return (
             <PrintItem
-              key={item.id}
-              fotoUrl={item.selectedFotoUrl}
+              key={id}
+              fotoUrl={selectedFotoUrl}
               config={config}
-              position={{ top, left }}
-              isSelected={selectedSlotId === item.id}
-              onClick={() => setSelectedSlotId(item.id)}
+              position={position}
+              isSelected={selectedSlotId === id}
+              onClick={() => {
+                // Hanya izinkan slot foto yang dipilih, bukan logo
+                if (!isLogo) {
+                  setSelectedSlotId(id);
+                }
+              }}
               onCropClick={() => handleOpenCropModal(item)}
+              isLogo={isLogo}
             />
           );
         })}
